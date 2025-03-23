@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>勉強記録アプリ</title>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FullCalendarのCSS -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet" />
+
+    <!-- FullCalendarのJS -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+
+    <!-- jsPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body {
+            font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+            background-color: white;
+            color: #222;
+            transition: all 0.3s ease;
+            padding: 20px 40px;
+            /* ← 上下20px, 左右40px */
+            max-width: 1000px;
+            /* ← 横幅が広すぎないように制限 */
+            margin: 0 auto;
+            /* ← 画面中央に寄せる */
+            box-sizing: border-box;
+        }
+
+        input,
+        textarea {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin-top: 10px;
+            border: none;
+            background-color: #3f51b5;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #303f9f;
+        }
+
+        h1,
+        h2 {
+            margin-top: 30px;
+            color: #3f51b5;
+        }
+
+        canvas,
+        #calendar {
+            margin-top: 20px;
+            background-color: white;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 🌙 ダークモード対応 */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #121212;
+                color: #eee;
+            }
+
+            input,
+            textarea {
+                background-color: #1e1e1e;
+                color: #eee;
+                border: 1px solid #444;
+            }
+
+            button {
+                background-color: #90caf9;
+                color: black;
+            }
+
+            button:hover {
+                background-color: #64b5f6;
+            }
+
+            h1,
+            h2 {
+                color: #90caf9;
+            }
+
+            canvas,
+            #calendar {
+                background-color: #1c1c1c;
+                color: #eee;
+                box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+            }
+
+        }
+
+        /* 🌙 手動ダークモード */
+        .dark-mode {
+            background-color: #121212;
+            color: #eee;
+        }
+
+        .dark-mode input,
+        .dark-mode textarea {
+            background-color: #1e1e1e;
+            color: #eee;
+            border: 1px solid #444;
+        }
+
+        .dark-mode button {
+            background-color: #90caf9;
+            color: black;
+        }
+
+        .dark-mode h1,
+        .dark-mode h2 {
+            color: #90caf9;
+        }
+
+        .dark-mode canvas,
+        .dark-mode #calendar {
+            background-color: #1c1c1c;
+            color: #eee;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+        }
+
+        /* 📱 レスポンシブ対応（簡易） */
+        @media (max-width: 600px) {
+            body {
+                margin: 10px;
+            }
+
+            canvas {
+                width: 100% !important;
+                height: auto !important;
+            }
+        }
+
+        /* 棒グラフとドーナツグラフのCSS */
+        .chart-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: stretch;
+            margin-top: 20px;
+        }
+
+        .chart-container canvas {
+            width: 100%;
+            max-width: 450px;
+            height: 300px;
+            flex: 1 1 45%;
+        }
+
+        /* ドーナツグラフの高さを棒グラフとそろえる */
+        .chart-container canvas {
+            width: 100%;
+            max-width: 450px;
+            height: 450px !important;
+            flex: 1 1 45%;
+        }
+
+        /* ヘッダー */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            /* ← ボタンを上下中央に配置 */
+            background-color: #3f51b5;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        /* h1の文字色を常に白に */
+        header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: white;
+            /* ← 明示的に白を指定 */
+        }
+
+        /* 通常ボタン */
+        header button {
+            background-color: #90caf9;
+            color: black;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        /* ボタンhover時 */
+        header button:hover {
+            background-color: #64b5f6;
+        }
+
+        /* 🌙 ダークモード */
+        .dark-mode header {
+            background-color: #1e1e1e;
+            color: white;
+        }
+
+        .dark-mode header h1 {
+            color: white;
+            /* ダークモードでも白 */
+        }
+
+        .dark-mode header button {
+            background-color: #555;
+            color: white;
+        }
+
+        .dark-mode header button:hover {
+            background-color: #777;
+        }
+    </style>
+
+</head>
+
+<body>
+    <!-- ヘッダー -->
+    <header
+        style="display: flex; justify-content: space-between; align-items: center; background-color: #3f51b5; color: white; padding: 10px 20px;">
+        <h1 style="margin: 0;">Study Time Tracker</h1>
+        <div>
+            <button onclick="toggleDarkMode()">🌗 ダークモード</button>
+            <button id="logoutButton" onclick="logout()" style="display: none;">🚪 ログアウト</button>
+        </div>
+    </header>
+
+    <!-- ログインエリア -->
+    <div id="loginArea">
+        <button onclick="login()">ログイン（匿名）</button>
+    </div>
+
+
+    <div id="mainContent" style="display: none;">
+
+        <!-- 「ダウンロード」プルダウン -->
+        <select id="downloadSelect" onchange="handleDownload(this.value)">
+            <option value="">📥 ダウンロード</option>
+            <option value="csv">CSV出力</option>
+            <option value="pdf">PDF出力</option>
+        </select>
+
+        <!-- 入力フォームエリア -->
+        <div id="formArea" style="display:none;">
+            <label>科目</label>
+            <input id="subject" placeholder="例：数学">
+
+            <label>時間（分）</label>
+            <input id="time" type="number" placeholder="例：60">
+
+            <label>日付</label>
+            <input id="date" type="date">
+
+            <label>メモ</label>
+            <textarea id="memo" placeholder="任意のメモ"></textarea>
+
+            <button onclick="submitStudy()">📌 記録する</button>
+        </div>
+
+        <!-- 履歴エリア -->
+        <h2>履歴（編集・削除）</h2>
+
+        <div style="margin-bottom: 10px;">
+            <input type="text" id="keywordInput" placeholder="🔍キーワード（科目・日付・メモ）で検索" style="width: 250px;"
+                oninput="updateHistoryView()">
+            <select id="sortSelect" onchange="updateHistoryView()">
+                <option value="date-desc">日付 ↓</option>
+                <option value="date-asc">日付 ↑</option>
+                <option value="time-desc">時間 ↓</option>
+                <option value="time-asc">時間 ↑</option>
+            </select>
+        </div>
+
+        <div style="margin-bottom: 10px;">
+            <button onclick="prevPage()">⬅️ 前へ</button>
+            <span id="pageInfo"></span>
+            <button onclick="nextPage()">➡️ 次へ</button>
+        </div>
+        <table id="historyTable" border="1" style="width: 100%; margin-bottom: 20px;">
+            <thead>
+                <tr>
+                    <th>科目</th>
+                    <th>時間</th>
+                    <th>日付</th>
+                    <th>メモ</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+
+        <h2>勉強時間グラフ</h2>
+        <!-- 📌 切り替えタブ -->
+        <div style="margin: 10px 0; display: flex; gap: 40px; align-items: center;">
+            <label style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                <input type="radio" name="viewType" value="monthly" checked onchange="changeView()"> 月別
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                <input type="radio" name="viewType" value="yearly" onchange="changeView()"> 年別
+            </label>
+        </div>
+
+        <!-- 📅 セレクター（月 or 年） -->
+        <div id="selectorArea">
+            <select id="monthSelect" onchange="updateCharts()">
+                <!-- JavaScriptで自動生成されます -->
+            </select>
+            <select id="yearSelect" onchange="updateCharts()" style="display:none;">
+                <!-- JavaScriptで自動生成されます -->
+            </select>
+        </div>
+
+        <!-- 📊 グラフエリア：棒グラフとドーナツグラフを横並びに -->
+        <div class="chart-container">
+            <canvas id="barChart"></canvas>
+            <canvas id="donutChart"></canvas>
+        </div>
+
+        <h2>勉強カレンダー</h2>
+        <div id="calendar"></div>
+    </div>
+
+    <!-- 📍 右下にログアウトボタン -->
+    <div id="logoutButtonBottom" style="position: fixed; bottom: 20px; right: 20px; z-index: 999; display: none;">
+        <button onclick="logout()">🚪 ログアウト</button>
+    </div>
+
+
+    <!-- 以下スクリプト -->
+    <script>
+        // Firebase設定（ここは自分のプロジェクトの値で置き換えてください）
+        const firebaseConfig = {
+            apiKey: "AIzaSyCjoR_CsOvOp7doi3gfxD_KLVvc7lfhtDc",
+            authDomain: "study-app-personal.firebaseapp.com",
+            projectId: "study-app-personal",
+            storageBucket: "study-app-personal.firebasestorage.app",
+            messagingSenderId: "150832047465",
+            appId: "1:150832047465:web:d57d35af3ed08b535f89f8",
+            measurementId: "G-LFNBKYMWRZ"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        // Firestore用のローカル変数（投稿履歴を保存）
+        let studyLogs = [];
+
+        // 投稿関数（更新）
+        function submitStudy() {
+            const subject = document.getElementById("subject").value;
+            const time = parseInt(document.getElementById("time").value);
+            const memo = document.getElementById("memo").value;
+            const dateInput = document.getElementById("date").value;
+            // 修正後（JSTになる）
+            const timestamp = dateInput ? createJSTDate(dateInput) : new Date();
+
+            const data = { subject, time, memo, timestamp };
+
+            if (editingId) {
+                // ✏️ 更新処理
+                db.collection("studyLogs").doc(editingId).update(data)
+                    .then(() => {
+                        alert("更新しました！");
+                        editingId = null;
+                        document.querySelector("button[onclick='submitStudy()']").textContent = "📌 記録する";
+                        fetchAllLogs();
+                    }).catch(console.error);
+            } else {
+                // ➕ 新規追加
+                db.collection("studyLogs").add(data)
+                    .then(() => {
+                        alert("記録完了！");
+                        fetchAllLogs();
+                    }).catch(console.error);
+            }
+
+            // 入力フォームをクリア
+            document.getElementById("subject").value = "";
+            document.getElementById("time").value = "";
+            document.getElementById("memo").value = "";
+            document.getElementById("date").value = "";
+        }
+
+        // Firestoreからすべての記録を取得してローカル変数に保存
+        function fetchAllLogs() {
+            db.collection('studyLogs')
+                .orderBy('timestamp', 'desc') // 新しい順
+                .get()
+                .then((querySnapshot) => {
+                    studyLogs = [];
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        studyLogs.push({
+                            id: doc.id,
+                            subject: data.subject,
+                            time: data.time,
+                            memo: data.memo,
+                            timestamp: data.timestamp.toDate() // JSのDate型に変換
+                        });
+                    });
+                    console.log("取得した勉強記録：", studyLogs); // ← 確認用
+
+                    // フェッチしたタイミングで描画
+                    const summary = aggregateStudyLogs(studyLogs);
+                    // カレンダーエレメントが存在していれば描画
+                    const calendarEl = document.getElementById('calendar');
+                    if (calendarEl) {
+                        renderCalendar(summary.daily);
+                    }
+                    updateHistoryView();
+                    updateCharts(); // ← 代わりに必要
+                })
+                .catch(console.error);
+
+
+        }
+
+        // ログイン成功後にも全件取得
+        function login() {
+            auth.signInAnonymously()
+                .then(() => {
+                    document.getElementById('loginArea').style.display = 'none';
+                    document.getElementById('formArea').style.display = 'block';
+                    document.getElementById('mainContent').style.display = 'block';
+                    document.getElementById('logoutButton').style.display = 'inline-block';
+                    document.getElementById('logoutButtonBottom').style.display = 'block';
+
+                    // 以下のようにnullチェックを追加
+                    const tabArea = document.querySelector('div[style*="display: flex"][style*="gap: 40px"]');
+                    if (tabArea) tabArea.style.display = 'flex';
+
+                    const chartArea = document.querySelector('div[style*="display: flex"][style*="flex-wrap: wrap"]');
+                    if (chartArea) chartArea.style.display = 'flex';
+
+                    fetchAllLogs();
+                })
+                .catch(console.error);
+        }
+
+        // 集計処理の追加コード
+        // 日付を YYYY-MM-DD 形式にフォーマット
+        function formatDate(date) {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        // 週番号を取得（例：2025-03）
+        function getWeekKey(date) {
+            const year = date.getFullYear();
+            const week = Math.ceil(((date - new Date(year, 0, 1)) / 86400000 + new Date(year, 0, 1).getDay() + 1) / 7);
+            return `${year}-W${String(week).padStart(2, '0')}`;
+        }
+
+        // 月キー（例：2025-03）
+        function getMonthKey(date) {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        }
+
+        // 年キー（例：2025）
+        function getYearKey(date) {
+            return `${date.getFullYear()}`;
+        }
+
+        // 総合集計ロジック
+        function aggregateStudyLogs(logs) {
+            const daily = {};
+            const weekly = {};
+            const monthly = {};
+            const yearly = {};
+            const bySubject = {};
+
+            logs.forEach(log => {
+                const date = new Date(log.timestamp);
+                const time = log.time;
+
+                const dayKey = formatDate(date);
+                const weekKey = getWeekKey(date);
+                const monthKey = getMonthKey(date);
+                const yearKey = getYearKey(date);
+                const subject = log.subject;
+
+                // 日別
+                daily[dayKey] = (daily[dayKey] || 0) + time;
+
+                // 週別
+                weekly[weekKey] = (weekly[weekKey] || 0) + time;
+
+                // 月別
+                monthly[monthKey] = (monthly[monthKey] || 0) + time;
+
+                // 年別
+                yearly[yearKey] = (yearly[yearKey] || 0) + time;
+
+                // 勉強内容別（日単位）
+                if (!bySubject[subject]) bySubject[subject] = {};
+                bySubject[subject][dayKey] = (bySubject[subject][dayKey] || 0) + time;
+            });
+
+            // 結果をまとめて返す
+            return {
+                daily,
+                weekly,
+                monthly,
+                yearly,
+                bySubject
+            };
+        }
+
+        let subjectChartInstance = null;
+
+        let calendar = null;
+
+        function renderCalendar(dailySummary) {
+            const calendarEl = document.getElementById('calendar');
+
+            // DOMに接続されていなければ描画しない（← これが重要！）
+            if (!calendarEl || !calendarEl.isConnected) return;
+
+            // すでにあれば破棄（再描画対策）
+            if (calendar) {
+                calendar.destroy();
+            }
+
+            const events = Object.keys(dailySummary).map(dateStr => {
+                return {
+                    title: `${dailySummary[dateStr]}分`,
+                    start: dateStr,
+                    allDay: true
+                };
+            });
+
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                height: 500,
+                events: events,
+                locale: 'ja',
+                timeZone: 'local'
+            });
+
+            calendar.render();
+        }
+
+        // 手動ダークモード切替（localStorageに保存）
+        function toggleDarkMode() {
+            const body = document.body;
+            const isDark = body.classList.toggle('dark-mode');
+            localStorage.setItem('darkMode', isDark ? 'on' : 'off');
+        }
+
+        // 初期読み込み時に状態を適用
+        window.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('darkMode') === 'on') {
+                document.body.classList.add('dark-mode');
+            }
+        });
+
+        // 履歴をテーブルに表示する関数
+        function renderHistoryTable(logs) {
+            const tbody = document.querySelector("#historyTable tbody");
+            tbody.innerHTML = "";
+
+            logs.forEach((log, index) => {
+                const tr = document.createElement("tr");
+
+                tr.innerHTML = `
+      <td>${log.subject}</td>
+      <td>${log.time}分</td>
+      <td>${formatDateTimeJST(log.timestamp)}</td>
+      <td>${log.memo || ""}</td>
+      <td>
+        <button onclick="editRecord('${log.id}')">✏️</button>
+        <button onclick="deleteRecord('${log.id}')">🗑</button>
+      </td>
+    `;
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 更新・削除処理用の関数を追加
+        let editingId = null; // 更新対象のドキュメントIDを保持
+
+        function editRecord(id) {
+            const log = studyLogs.find(item => item.id === id);
+            if (!log) return;
+
+            document.getElementById("subject").value = log.subject;
+            document.getElementById("time").value = log.time;
+            document.getElementById("memo").value = log.memo;
+            document.getElementById("date").value = formatDate(log.timestamp);
+
+            editingId = id;
+            document.querySelector("button[onclick='submitStudy()']").textContent = "✅ 更新する";
+        }
+
+        function deleteRecord(id) {
+            if (!confirm("この記録を削除してもよいですか？")) return;
+
+            db.collection("studyLogs").doc(id).delete()
+                .then(() => {
+                    alert("削除しました！");
+                    fetchAllLogs();
+                }).catch(console.error);
+        }
+
+        // JavaScriptにページング・検索対応関数を追加
+        let currentPage = 1;
+        const itemsPerPage = 5; // 1ページあたりの表示件数
+
+        function updateHistoryView() {
+            const keyword = document.getElementById("keywordInput").value.trim().toLowerCase();
+            const sortOption = document.getElementById("sortSelect").value;
+
+            let filtered = studyLogs.filter(log => {
+                const subject = (log.subject || "").toLowerCase();
+                const memo = (log.memo || "").toLowerCase();
+                const dateStr = formatDate(log.timestamp).toLowerCase();
+
+                return (
+                    subject.includes(keyword) ||
+                    memo.includes(keyword) ||
+                    dateStr.includes(keyword) // ← "2025-03"などにもマッチ
+                );
+            });
+
+            // ソート処理
+            switch (sortOption) {
+                case "date-desc":
+                    filtered.sort((a, b) => b.timestamp - a.timestamp);
+                    break;
+                case "date-asc":
+                    filtered.sort((a, b) => a.timestamp - b.timestamp);
+                    break;
+                case "time-desc":
+                    filtered.sort((a, b) => b.time - a.time);
+                    break;
+                case "time-asc":
+                    filtered.sort((a, b) => a.time - b.time);
+                    break;
+            }
+
+            renderPagedTable(filtered);
+        }
+
+        function renderPagedTable(filteredLogs) {
+            const tbody = document.querySelector("#historyTable tbody");
+            tbody.innerHTML = "";
+
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const pagedLogs = filteredLogs.slice(startIndex, startIndex + itemsPerPage);
+
+            pagedLogs.forEach(log => {
+                const tr = document.createElement("tr");
+
+                tr.innerHTML = `
+      <td>${log.subject}</td>
+      <td>${log.time}分</td>
+      <td>${formatDateTimeJST(log.timestamp)}</td>
+      <td>${log.memo || ""}</td>
+      <td>
+        <button onclick="editRecord('${log.id}')">✏️</button>
+        <button onclick="deleteRecord('${log.id}')">🗑</button>
+      </td>
+    `;
+                tbody.appendChild(tr);
+            });
+
+            const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+            document.getElementById("pageInfo").textContent = `ページ ${currentPage} / ${totalPages}`;
+
+            // ページ範囲外なら修正
+            if (currentPage > totalPages && totalPages > 0) {
+                currentPage = totalPages;
+                renderPagedTable(filteredLogs);
+            }
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                updateHistoryView();
+            }
+        }
+
+        function nextPage() {
+            const keyword = document.getElementById("searchInput").value.toLowerCase();
+            const filtered = studyLogs.filter(log =>
+                log.subject.toLowerCase().includes(keyword) ||
+                log.memo.toLowerCase().includes(keyword)
+            );
+            const totalPages = Math.ceil(filtered.length / itemsPerPage);
+
+            if (currentPage < totalPages) {
+                currentPage++;
+                updateHistoryView();
+            }
+        }
+
+        // 日本時間で yyyy-MM-dd hh:mm 表記に変換
+        function formatDateTimeJST(date) {
+            const jst = new Date(date.getTime() + (9 * 60 * 60 * 1000)); // JST補正
+            const yyyy = jst.getUTCFullYear();
+            const mm = String(jst.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(jst.getUTCDate()).padStart(2, '0');
+            const hh = String(jst.getUTCHours()).padStart(2, '0');
+            const min = String(jst.getUTCMinutes()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+        }
+
+        // JSTで記録するための補正（ローカル日付 → JST Date）
+        function createJSTDate(dateStr) {
+            const [year, month, day] = dateStr.split('-').map(Number);
+            return new Date(year, month - 1, day, 0, 0, 0);
+        }
+
+
+        // JavaScript：グラフ切替＆描画ロジック
+        let barChart = null;
+        let donutChart = null;
+
+        // 🔄 表示切替
+        function changeView() {
+            const view = getViewType();
+            document.getElementById("monthSelect").style.display = (view === "monthly") ? "inline-block" : "none";
+            document.getElementById("yearSelect").style.display = (view === "yearly") ? "inline-block" : "none";
+            updateCharts();
+        }
+
+        function getViewType() {
+            return document.querySelector('input[name="viewType"]:checked').value;
+        }
+
+        // 📅 セレクター生成
+        function populateSelectors() {
+            const now = new Date();
+            const yearSelect = document.getElementById("yearSelect");
+            const monthSelect = document.getElementById("monthSelect");
+
+            for (let y = now.getFullYear(); y >= now.getFullYear() - 5; y--) {
+                const option = document.createElement("option");
+                option.value = y;
+                option.textContent = `${y}年`;
+                yearSelect.appendChild(option);
+            }
+
+            for (let m = 0; m < 12; m++) {
+                const y = now.getFullYear();
+                const option = document.createElement("option");
+                option.value = `${y}-${String(m + 1).padStart(2, '0')}`;
+                option.textContent = `${y}年${m + 1}月`;
+                monthSelect.appendChild(option);
+            }
+
+            monthSelect.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            yearSelect.value = `${now.getFullYear()}`;
+        }
+
+        // 📊 チャート更新
+        function updateCharts() {
+            const view = getViewType();
+            if (view === "monthly") {
+                const ym = document.getElementById("monthSelect").value;
+                drawMonthlyCharts(ym);
+            } else {
+                const y = document.getElementById("yearSelect").value;
+                drawYearlyCharts(y);
+            }
+        }
+
+        // 📊 月別表示（1日〜31日）
+        function drawMonthlyCharts(ym) {
+            const [year, month] = ym.split("-");
+            const daily = {}; // { '1': totalTime, ..., '31': totalTime }
+            const bySubject = {};
+
+            studyLogs.forEach(log => {
+                const date = new Date(log.timestamp);
+                const y = date.getFullYear();
+                const m = date.getMonth() + 1;
+                if (`${y}-${String(m).padStart(2, '0')}` === ym) {
+                    const day = date.getDate();
+                    daily[day] = (daily[day] || 0) + log.time;
+
+                    if (!bySubject[log.subject]) bySubject[log.subject] = 0;
+                    bySubject[log.subject] += log.time;
+                }
+            });
+
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const labels = Array.from({ length: daysInMonth }, (_, i) => `${i + 1}日`);
+            const values = labels.map((_, i) => daily[i + 1] || 0);
+
+            renderBarChart(labels, values, "日別勉強時間（分）");
+            renderDonutChart(bySubject);
+        }
+
+        // 📊 年別表示（月単位）
+        function drawYearlyCharts(year) {
+            const monthly = {};
+            const bySubject = {};
+
+            studyLogs.forEach(log => {
+                const date = new Date(log.timestamp);
+                const y = date.getFullYear();
+                if (y.toString() === year.toString()) {
+                    const m = date.getMonth() + 1;
+                    monthly[m] = (monthly[m] || 0) + log.time;
+
+                    if (!bySubject[log.subject]) bySubject[log.subject] = 0;
+                    bySubject[log.subject] += log.time;
+                }
+            });
+
+            const labels = Array.from({ length: 12 }, (_, i) => `${i + 1}月`);
+            const values = labels.map((_, i) => monthly[i + 1] || 0);
+
+            renderBarChart(labels, values, "月別勉強時間（分）");
+            renderDonutChart(bySubject);
+        }
+
+        // Chart.js 用：縦棒グラフ描画
+        function renderBarChart(labels, data, label) {
+            const ctx = document.getElementById('barChart').getContext('2d');
+            if (barChart) barChart.destroy();
+
+            barChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        backgroundColor: 'rgba(63, 81, 181, 0.6)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 60
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: context => `${context.raw} 分`
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Chart.js 用：ドーナツグラフ描画（科目別合計）
+        function renderDonutChart(bySubject) {
+            const ctx = document.getElementById('donutChart').getContext('2d');
+            if (donutChart) donutChart.destroy();
+
+            const labels = Object.keys(bySubject);
+            const values = labels.map(k => bySubject[k]);
+
+            donutChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '科目別',
+                        data: values
+                    }]
+                },
+                options: {
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: context => `${context.label}: ${context.raw} 分`
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 初期化
+        window.addEventListener("DOMContentLoaded", () => {
+            populateSelectors();
+            updateCharts();
+        });
+
+        // ログアウト
+        function logout() {
+            auth.signOut().then(() => {
+                alert("ログアウトしました！");
+                document.getElementById('loginArea').style.display = 'block';
+                document.getElementById('formArea').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'none';
+                document.getElementById('logoutButton').style.display = 'none';
+                document.getElementById('logoutButtonBottom').style.display = 'none';
+
+                // nullチェックを追加
+                const tabArea = document.querySelector('div[style*="display: flex"][style*="gap: 40px"]');
+                if (tabArea) tabArea.style.display = 'none';
+
+                const chartArea = document.querySelector('div[style*="display: flex"][style*="flex-wrap: wrap"]');
+                if (chartArea) chartArea.style.display = 'none';
+            }).catch(console.error);
+        }
+
+        function handleDownload() {
+            const value = document.getElementById("downloadSelect").value;
+            if (value === "pdf") {
+                exportToPDF();
+            } else if (value === "csv") {
+                exportToCSV();
+            }
+
+            // 選択をリセット
+            document.getElementById("downloadSelect").value = "";
+        }
+
+        // PDF出力関数
+        function downloadPDF() {
+            const element = document.body; // または document.getElementById('mainContent')
+            html2pdf().from(element).save('study_tracker.pdf');
+        }
+
+        // CSV出力関数
+        function downloadCSV() {
+            const rows = [
+                ["科目", "時間（分）", "日付", "メモ"],
+                ...studyLogs.map(log => [
+                    log.subject,
+                    log.time,
+                    formatDateTimeJST(log.timestamp),
+                    (log.memo || "").replace(/\n/g, " ")
+                ])
+            ];
+
+            const csvContent = "\uFEFF" + rows.map(row => row.join(",")).join("\n"); // BOM付きでSJIS対応
+            const blob = new Blob([csvContent], { type: "text/csv;charset=shift_jis;" });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "study_logs.csv";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function handleDownload(type) {
+            if (type === "csv") {
+                downloadCSV(); // あなたのCSV出力関数
+            } else if (type === "pdf") {
+                downloadPDF(); // 上の関数
+            }
+        }
+
+    </script>
+</body>
+
+</html>
