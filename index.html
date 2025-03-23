@@ -154,26 +154,37 @@
         /* 棒グラフとドーナツグラフのCSS */
         .chart-container {
             display: flex;
+            flex-direction: row;
+            /* 初期は横並び */
             gap: 20px;
-            flex-wrap: wrap;
             justify-content: center;
             align-items: stretch;
             margin-top: 20px;
         }
 
-        .chart-container canvas {
-            width: 100%;
-            max-width: 450px;
-            height: 300px;
-            flex: 1 1 45%;
-        }
-
-        /* ドーナツグラフの高さを棒グラフとそろえる */
+        /* 棒・ドーナツグラフ共通の設定 */
         .chart-container canvas {
             width: 100%;
             max-width: 450px;
             height: 450px !important;
             flex: 1 1 45%;
+        }
+
+        /* 📱 モバイル表示時のレイアウト調整 */
+        @media (max-width: 600px) {
+            .chart-container {
+                flex-direction: column;
+                /* 縦並びに変更 */
+                flex-wrap: nowrap;
+                /* wrap解除で点滅防止 */
+                align-items: center;
+            }
+
+            .chart-container canvas {
+                height: 450px !important;
+                max-width: 90vw;
+                /* 横幅も調整 */
+            }
         }
 
         /* ヘッダー */
