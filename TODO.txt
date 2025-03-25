@@ -1,0 +1,4 @@
+TODO
+FirebaseなどAPIキーが含まれる場合、読み取り制限の設定はどうできますか？
+PWA
+css,js,htmlの分離

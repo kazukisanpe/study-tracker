@@ -252,6 +252,7 @@
     <header
         style="display: flex; justify-content: space-between; align-items: center; background-color: #3f51b5; color: white; padding: 10px 20px;">
         <h1 style="margin: 0;">Study Time Tracker</h1>
+        <span id="userNicknameDisplay"></span>
         <div>
             <button onclick="toggleDarkMode()">🌗 ダークモード</button>
             <button id="logoutButton" onclick="logout()" style="display: none;">🚪 ログアウト</button>
@@ -260,7 +261,9 @@
 
     <!-- ログインエリア -->
     <div id="loginArea">
-        <button onclick="login()">ログイン（匿名）</button>
+        <input id="loginUserId" placeholder="ユーザID (半角英数字)" required>
+        <input id="loginNickname" placeholder="ニックネーム" required>
+        <button onclick="login()">ログイン</button>
     </div>
 
 
@@ -276,7 +279,8 @@
         <!-- 入力フォームエリア -->
         <div id="formArea" style="display:none;">
             <label>科目</label>
-            <input id="subject" placeholder="例：数学">
+            <input id="subject" list="subjectList" oninput="showSuggestions()" placeholder="例：数学">
+            <datalist id="subjectList"></datalist> <!-- 🔥 ここにサジェストを表示 -->
 
             <label>時間（分）</label>
             <input id="time" type="number" placeholder="例：60">
@@ -288,6 +292,12 @@
             <textarea id="memo" placeholder="任意のメモ"></textarea>
 
             <button onclick="submitStudy()">📌 記録する</button>
+        </div>
+
+        <!-- CSVアップロードボタン（履歴が0件の時のみ表示） -->
+        <div id="csvUploadContainer" style="display: none;">
+            <input type="file" id="csvUpload" accept=".csv" onchange="handleCSVUpload(event)">
+            <button onclick="uploadCSV()">📤 CSVアップロード</button>
         </div>
 
         <!-- 履歴エリア -->
@@ -304,10 +314,13 @@
             </select>
         </div>
 
-        <div style="margin-bottom: 10px;">
-            <button onclick="prevPage()">⬅️ 前へ</button>
-            <span id="pageInfo"></span>
-            <button onclick="nextPage()">➡️ 次へ</button>
+        <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <button onclick="prevPage()">⬅️ 前へ</button>
+                <span id="pageInfo"></span>
+                <button onclick="nextPage()">➡️ 次へ</button>
+            </div>
+            <span id="totalCount">件数: 0 件</span> <!-- ← 合計件数表示 -->
         </div>
         <table id="historyTable" border="1" style="width: 100%; margin-bottom: 20px;">
             <thead>
@@ -332,17 +345,19 @@
             <label style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
                 <input type="radio" name="viewType" value="yearly" onchange="changeView()"> 年別
             </label>
+            <label style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                <input type="radio" name="viewType" value="fiscal" onchange="changeView()"> 年度別
+            </label>
         </div>
 
-        <!-- 📅 セレクター（月 or 年） -->
+        <!-- 📅 セレクター（月 or 年 or 年度） -->
         <div id="selectorArea">
-            <select id="monthSelect" onchange="updateCharts()">
-                <!-- JavaScriptで自動生成されます -->
-            </select>
-            <select id="yearSelect" onchange="updateCharts()" style="display:none;">
-                <!-- JavaScriptで自動生成されます -->
-            </select>
+            <select id="monthSelect" onchange="updateCharts()"></select>
+            <select id="yearSelect" onchange="updateCharts()" style="display:none;"></select>
+            <select id="fiscalYearSelect" onchange="updateCharts()" style="display:none;"></select>
         </div>
+
+        <h3 id="totalTimeDisplay" style="text-align: center; margin-bottom: 10px;">合計時間：0時間0分</h3>
 
         <!-- 📊 グラフエリア：棒グラフとドーナツグラフを横並びに -->
         <div class="chart-container">
@@ -379,19 +394,24 @@
         // Firestore用のローカル変数（投稿履歴を保存）
         let studyLogs = [];
 
-        // 投稿関数（更新）
+        // 投稿関数（ユーザIDを紐付けてデータ保存）
         function submitStudy() {
+            const userId = localStorage.getItem("userId");
+            if (!userId) {
+                alert("ログインしてください！");
+                return;
+            }
+
             const subject = document.getElementById("subject").value;
             const time = parseInt(document.getElementById("time").value);
             const memo = document.getElementById("memo").value;
             const dateInput = document.getElementById("date").value;
-            // 修正後（JSTになる）
             const timestamp = dateInput ? createJSTDate(dateInput) : new Date();
 
-            const data = { subject, time, memo, timestamp };
+            const data = { userId, subject, time, memo, timestamp };
 
             if (editingId) {
-                // ✏️ 更新処理
+                // ✏️ 更新処理（ユーザIDは変更不可）
                 db.collection("studyLogs").doc(editingId).update(data)
                     .then(() => {
                         alert("更新しました！");
@@ -415,13 +435,23 @@
             document.getElementById("date").value = "";
         }
 
-        // Firestoreからすべての記録を取得してローカル変数に保存
+        let uniqueSubjects = []; // 過去の科目を保存する配列
+
+        // Firestoreからログイン中のユーザの記録のみ取得
         function fetchAllLogs() {
+            const userId = localStorage.getItem("userId");
+            if (!userId) {
+                alert("ログインしてください！");
+                return;
+            }
+
             db.collection('studyLogs')
+                .where('userId', '==', userId) // 👈 現在のユーザIDのデータのみ取得
                 .orderBy('timestamp', 'desc') // 新しい順
                 .get()
                 .then((querySnapshot) => {
                     studyLogs = [];
+                    let subjectsSet = new Set(); // 🔥 ここで subjectsSet を定義
                     querySnapshot.forEach((doc) => {
                         const data = doc.data();
                         studyLogs.push({
@@ -431,45 +461,94 @@
                             memo: data.memo,
                             timestamp: data.timestamp.toDate() // JSのDate型に変換
                         });
+
+                        // 🔥 科目リストに追加（重複なし）
+                        if (data.subject) {
+                            subjectsSet.add(data.subject);
+                        }
                     });
-                    console.log("取得した勉強記録：", studyLogs); // ← 確認用
+
+                    uniqueSubjects = Array.from(subjectsSet); // Set → 配列に変換
+                    console.log("✅ サジェスト科目リスト:", uniqueSubjects);
+                    console.log(`✅ 取得した勉強記録（${userId} のみ）:`, studyLogs);
 
                     // フェッチしたタイミングで描画
                     const summary = aggregateStudyLogs(studyLogs);
-                    // カレンダーエレメントが存在していれば描画
                     const calendarEl = document.getElementById('calendar');
                     if (calendarEl) {
                         renderCalendar(summary.daily);
                     }
                     updateHistoryView();
-                    updateCharts(); // ← 代わりに必要
+                    updateCharts();
+                    showSuggestions(); // 🔥 サジェストリストを更新FF
+
+                    // 🔥 履歴が0件の時のみ CSV アップロードボタンを表示
+                    document.getElementById("csvUploadContainer").style.display = (studyLogs.length === 0) ? "block" : "none";
                 })
                 .catch(console.error);
-
-
         }
 
-        // ログイン成功後にも全件取得
+        // Firestoreのリファレンス
+        const usersRef = db.collection("users");
+
+        // ユーザIDとニックネームでログイン
         function login() {
-            auth.signInAnonymously()
-                .then(() => {
-                    document.getElementById('loginArea').style.display = 'none';
-                    document.getElementById('formArea').style.display = 'block';
-                    document.getElementById('mainContent').style.display = 'block';
-                    document.getElementById('logoutButton').style.display = 'inline-block';
-                    document.getElementById('logoutButtonBottom').style.display = 'block';
+            const userId = document.getElementById("loginUserId").value.trim();
+            const nickname = document.getElementById("loginNickname").value.trim();
 
-                    // 以下のようにnullチェックを追加
-                    const tabArea = document.querySelector('div[style*="display: flex"][style*="gap: 40px"]');
-                    if (tabArea) tabArea.style.display = 'flex';
+            if (!userId || !nickname) {
+                alert("ユーザIDとニックネームを入力してください！");
+                return;
+            }
 
-                    const chartArea = document.querySelector('div[style*="display: flex"][style*="flex-wrap: wrap"]');
-                    if (chartArea) chartArea.style.display = 'flex';
-
-                    fetchAllLogs();
-                })
-                .catch(console.error);
+            // ユーザIDの存在をチェック
+            usersRef.doc(userId).get().then((doc) => {
+                if (doc.exists) {
+                    // 既存ユーザ → Firestoreからニックネーム取得
+                    const savedNickname = doc.data().nickname;
+                    alert(`ようこそ ${savedNickname} さん！`);
+                    saveUserSession(userId, savedNickname);
+                } else {
+                    // 新規ユーザ登録
+                    usersRef.doc(userId).set({ userId, nickname }).then(() => {
+                        alert("新規アカウントを作成しました！");
+                        saveUserSession(userId, nickname);
+                    }).catch(console.error);
+                }
+            }).catch(console.error);
         }
+
+        // ローカルにユーザ情報を保存
+        function saveUserSession(userId, nickname) {
+            localStorage.setItem("userId", userId);
+            localStorage.setItem("nickname", nickname);
+            showMainContent();
+        }
+
+        // ログイン後の画面表示
+        function showMainContent() {
+            document.getElementById("loginArea").style.display = "none";
+            document.getElementById("mainContent").style.display = "block";
+            document.getElementById("logoutButton").style.display = "inline-block";
+            document.getElementById("logoutButtonBottom").style.display = "block";
+
+            // ニックネームをヘッダーに表示
+            const nickname = localStorage.getItem("nickname");
+            document.getElementById("userNicknameDisplay").textContent = `こんにちは、${nickname} さん！`;
+
+            // 🔥 入力エリアを表示
+            document.getElementById("formArea").style.display = "block";
+
+            fetchAllLogs();
+        }
+
+        // ページロード時にセッション確認（自動ログイン）
+        window.onload = function () {
+            const userId = localStorage.getItem("userId");
+            if (userId) {
+                showMainContent();
+            }
+        };
 
         // 集計処理の追加コード
         // 日付を YYYY-MM-DD 形式にフォーマット
@@ -675,6 +754,18 @@
                     break;
             }
 
+            // 現在のページが範囲外にならないように調整
+            const totalPages = Math.ceil(filtered.length / itemsPerPage);
+            if (currentPage > totalPages) {
+                currentPage = Math.max(totalPages, 1);
+            }
+
+            // CSVアップロードボタンの表示制御
+            document.getElementById("csvUploadContainer").style.display = (studyLogs.length === 0) ? "block" : "none";
+
+            // 件数を更新
+            document.getElementById("totalCount").textContent = `件数: ${filtered.length} 件`;
+
             renderPagedTable(filtered);
         }
 
@@ -719,11 +810,12 @@
         }
 
         function nextPage() {
-            const keyword = document.getElementById("searchInput").value.toLowerCase();
+            const keyword = document.getElementById("keywordInput").value.trim().toLowerCase();
             const filtered = studyLogs.filter(log =>
                 log.subject.toLowerCase().includes(keyword) ||
                 log.memo.toLowerCase().includes(keyword)
             );
+
             const totalPages = Math.ceil(filtered.length / itemsPerPage);
 
             if (currentPage < totalPages) {
@@ -744,9 +836,19 @@
         }
 
         // JSTで記録するための補正（ローカル日付 → JST Date）
-        function createJSTDate(dateStr) {
-            const [year, month, day] = dateStr.split('-').map(Number);
-            return new Date(year, month - 1, day, 0, 0, 0);
+        function createJSTDate(dateTimeStr) {
+            const [datePart, timePart] = dateTimeStr.split(" ");
+            const [year, month, day] = datePart.split("-").map(Number);
+            const [hour, minute] = timePart ? timePart.split(":").map(Number) : [0, 0];
+
+            const jstDate = new Date(year, month - 1, day, hour, minute, 0);
+
+            if (isNaN(jstDate.getTime())) {
+                console.error("Invalid date conversion:", dateTimeStr);
+                return null; // 無効な日付は null を返す
+            }
+
+            return firebase.firestore.Timestamp.fromDate(jstDate);
         }
 
 
@@ -759,18 +861,24 @@
             const view = getViewType();
             document.getElementById("monthSelect").style.display = (view === "monthly") ? "inline-block" : "none";
             document.getElementById("yearSelect").style.display = (view === "yearly") ? "inline-block" : "none";
+            document.getElementById("fiscalYearSelect").style.display = (view === "fiscal") ? "inline-block" : "none";
             updateCharts();
         }
 
+        // 📌 現在の選択モードを取得
         function getViewType() {
             return document.querySelector('input[name="viewType"]:checked').value;
         }
 
-        // 📅 セレクター生成
+        // 📅 年度セレクターを作成（4月始まり）
         function populateSelectors() {
             const now = new Date();
             const yearSelect = document.getElementById("yearSelect");
             const monthSelect = document.getElementById("monthSelect");
+            const fiscalYearSelect = document.getElementById("fiscalYearSelect");
+
+            // ✅ 今年の年度を判定（4月1日〜翌3月31日が同じ年度）
+            const currentFiscalYear = (now.getMonth() + 1 <= 3) ? now.getFullYear() - 1 : now.getFullYear();
 
             for (let y = now.getFullYear(); y >= now.getFullYear() - 5; y--) {
                 const option = document.createElement("option");
@@ -787,8 +895,62 @@
                 monthSelect.appendChild(option);
             }
 
+            for (let fy = currentFiscalYear; fy >= now.getFullYear() - 5; fy--) {
+                const option = document.createElement("option");
+                option.value = fy;
+                option.textContent = `${fy}年度 (${fy}年4月～${fy + 1}年3月)`;
+                fiscalYearSelect.appendChild(option);
+
+                // ✅ 初期選択を「現在の年度」にセット
+                if (fy === currentFiscalYear) {
+                    option.selected = true;
+                }
+            }
+
+            // ✅ 各セレクターの初期値を設定
             monthSelect.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
             yearSelect.value = `${now.getFullYear()}`;
+            fiscalYearSelect.value = currentFiscalYear; // ✅ 現在の年度にセット
+        }
+
+        // 📊 年度別表示（4月～翌年3月）
+        function drawFiscalYearCharts(fiscalYear) {
+            fiscalYear = parseInt(fiscalYear); // 🔴 選択年度そのままを利用する
+
+            const fiscalStart = new Date(fiscalYear, 3, 1); // 4月1日
+            const fiscalEnd = new Date(fiscalYear + 1, 2, 31, 23, 59, 59); // 翌年3月31日
+
+            const monthly = {};
+            const bySubject = {};
+
+            console.log(`✅ 年度 ${fiscalYear} の集計: ${fiscalStart} 〜 ${fiscalEnd}`);
+
+            studyLogs.forEach(log => {
+                const date = new Date(log.timestamp);
+                console.log("🔍 データ確認:", date, log.subject, log.time);
+
+                if (date >= fiscalStart && date <= fiscalEnd) {
+                    const monthKey = date.getMonth() + 1; // 1月 = 1, 12月 = 12
+                    const adjustedMonth = (monthKey >= 4) ? monthKey - 3 : monthKey + 9; // 🔴 4月=1, 3月=12 に変換
+
+                    console.log(`✅ 年度内データ: ${adjustedMonth}月`);
+
+                    monthly[adjustedMonth] = (monthly[adjustedMonth] || 0) + log.time;
+
+                    if (!bySubject[log.subject]) bySubject[log.subject] = 0;
+                    bySubject[log.subject] += log.time;
+                }
+            });
+
+            console.log("✅ 年度別データ", monthly, bySubject);
+
+            const labels = ["4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月", "1月", "2月", "3月"];
+            const values = labels.map((_, i) => monthly[i + 1] || 0); // 🔴 `i + 1` で正しく取得
+
+            console.log("✅ 棒グラフ用データ", values);
+
+            renderBarChart(labels, values, `${fiscalYear}年度の勉強時間（分）`);
+            renderDonutChart(bySubject);
         }
 
         // 📊 チャート更新
@@ -797,9 +959,12 @@
             if (view === "monthly") {
                 const ym = document.getElementById("monthSelect").value;
                 drawMonthlyCharts(ym);
-            } else {
+            } else if (view === "yearly") {
                 const y = document.getElementById("yearSelect").value;
                 drawYearlyCharts(y);
+            } else if (view === "fiscal") {
+                const fy = document.getElementById("fiscalYearSelect").value;
+                drawFiscalYearCharts(parseInt(fy));
             }
         }
 
@@ -925,23 +1090,17 @@
             updateCharts();
         });
 
-        // ログアウト
+        // ログアウト処理
         function logout() {
-            auth.signOut().then(() => {
-                alert("ログアウトしました！");
-                document.getElementById('loginArea').style.display = 'block';
-                document.getElementById('formArea').style.display = 'none';
-                document.getElementById('mainContent').style.display = 'none';
-                document.getElementById('logoutButton').style.display = 'none';
-                document.getElementById('logoutButtonBottom').style.display = 'none';
+            localStorage.removeItem("userId");
+            localStorage.removeItem("nickname");
 
-                // nullチェックを追加
-                const tabArea = document.querySelector('div[style*="display: flex"][style*="gap: 40px"]');
-                if (tabArea) tabArea.style.display = 'none';
+            document.getElementById("loginArea").style.display = "block";
+            document.getElementById("mainContent").style.display = "none";
+            document.getElementById("logoutButton").style.display = "none";
+            document.getElementById("logoutButtonBottom").style.display = "none";
 
-                const chartArea = document.querySelector('div[style*="display: flex"][style*="flex-wrap: wrap"]');
-                if (chartArea) chartArea.style.display = 'none';
-            }).catch(console.error);
+            alert("ログアウトしました！");
         }
 
         function handleDownload() {
@@ -992,6 +1151,259 @@
             } else if (type === "pdf") {
                 downloadPDF(); // 上の関数
             }
+        }
+
+        // CSVファイルを選択したときの処理
+        function handleCSVUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const content = e.target.result;
+                parseCSV(content);
+            };
+            reader.readAsText(file, "Shift_JIS"); // CSV出力と同じエンコーディング（BOM付きShift_JIS対応）
+        }
+
+        // CSVをパースしてデータを格納
+        let csvData = [];
+
+        function parseCSV(content) {
+            csvData = [];
+            const lines = content.trim().split(/\r?\n/);
+            const headers = lines[0].split(",").map(header => header.trim());
+
+            if (headers.length < 3 || headers[0] !== "科目" || headers[1] !== "時間（分）" || headers[2] !== "日付") {
+                alert("CSVのフォーマットが正しくありません！");
+                return;
+            }
+
+            for (let i = 1; i < lines.length; i++) {
+                const columns = parseCSVLine(lines[i]);
+                if (columns.length < 3) continue;
+
+                const subject = columns[0];
+                const time = parseInt(columns[1], 10);
+                const dateStr = columns[2]; // yyyy-MM-dd hh:mm
+                const memo = columns.length > 3 ? columns.slice(3).join(",") : "";
+
+                const timestamp = parseDateTime(dateStr);
+                if (!timestamp) {
+                    console.warn(`無効な日付形式をスキップ: ${lines[i]}`);
+                    continue;
+                }
+
+                csvData.push({ subject, time, memo, timestamp });
+            }
+
+            console.log("✔ CSVデータ (Firestoreに保存予定):", csvData);
+            alert(`${csvData.length} 件のデータを読み込みました！`);
+        }
+
+        // カンマを含むデータの処理
+        function parseCSVLine(line) {
+            const result = [];
+            let current = "";
+            let insideQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+
+                if (char === '"' && (i === 0 || line[i - 1] !== '\\')) {
+                    insideQuotes = !insideQuotes; // クォートの切り替え
+                } else if (char === ',' && !insideQuotes) {
+                    result.push(current.trim());
+                    current = "";
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim()); // 最後の要素を追加
+            return result;
+        }
+
+        // yyyy-MM-dd hh:mm に対応
+        function parseDateTime(dateStr) {
+            const dateTimeRegex = /^(\d{4}-\d{2}-\d{2})\s?(\d{2}:\d{2})?$/;
+            const match = dateStr.match(dateTimeRegex);
+
+            if (!match) return null; // 無効な日付の場合は null を返す
+
+            const datePart = match[1]; // yyyy-MM-dd
+            const timePart = match[2] || "00:00"; // 時間がない場合は "00:00"
+
+            return createJSTDate(`${datePart} ${timePart}`);
+        }
+
+        function uploadCSV() {
+            console.log("🔥 アップロードデータ:", csvData);
+
+            if (csvData.length === 0) {
+                alert("アップロードするデータがありません！");
+                return;
+            }
+
+            const batch = db.batch();
+            const userId = localStorage.getItem("userId"); // 現在のユーザIDを取得
+
+            csvData.forEach(data => {
+                if (!data.timestamp) {
+                    console.warn("スキップ: 無効なデータ", data);
+                    return;
+                }
+
+                const docRef = db.collection("studyLogs").doc();
+                batch.set(docRef, {
+                    userId, // 🔥 追加: ユーザIDをFirestoreに保存
+                    ...data  // 既存データを展開
+                });
+            });
+
+            batch.commit()
+                .then(() => {
+                    alert("✅ CSVデータをアップロードしました！");
+                    csvData = [];
+                    document.getElementById("csvUpload").value = "";
+                    fetchAllLogs(); // 再取得
+                })
+                .catch(error => {
+                    console.error("❌ CSVアップロード失敗:", error);
+                    alert("アップロード中にエラーが発生しました。");
+                });
+        }
+
+        // サジェストの表示
+        function showSuggestions() {
+            const input = document.getElementById("subject");
+            const datalist = document.getElementById("subjectList");
+
+            // 🔄 既存リストをクリア
+            datalist.innerHTML = "";
+
+            // 🔍 入力値に一致するものだけフィルタリング
+            const filteredSubjects = uniqueSubjects.filter(subj => subj.includes(input.value));
+
+            // 🔽 リストに追加
+            filteredSubjects.forEach(subj => {
+                const option = document.createElement("option");
+                option.value = subj;
+                datalist.appendChild(option);
+            });
+        }
+
+        // 📊 合計時間を計算して表示する関数
+        function updateTotalTimeDisplay(totalMinutes) {
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            document.getElementById("totalTimeDisplay").textContent = `合計時間：${hours}時間${minutes}分`;
+        }
+
+        // 📊 グラフ更新時に合計時間を計算
+        function updateCharts() {
+            const view = getViewType();
+            let totalMinutes = 0;
+
+            if (view === "monthly") {
+                const ym = document.getElementById("monthSelect").value;
+                totalMinutes = drawMonthlyCharts(ym);
+            } else if (view === "yearly") {
+                const y = document.getElementById("yearSelect").value;
+                totalMinutes = drawYearlyCharts(y);
+            } else if (view === "fiscal") {
+                const fy = document.getElementById("fiscalYearSelect").value;
+                totalMinutes = drawFiscalYearCharts(parseInt(fy));
+            }
+
+            // 🔄 合計時間を更新
+            updateTotalTimeDisplay(totalMinutes);
+        }
+
+        // 📊 月別グラフ描画（戻り値：合計時間）
+        function drawMonthlyCharts(ym) {
+            const [year, month] = ym.split("-");
+            const daily = {};
+            const bySubject = {};
+            let totalMinutes = 0;
+
+            studyLogs.forEach(log => {
+                const date = new Date(log.timestamp);
+                if (`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` === ym) {
+                    const day = date.getDate();
+                    daily[day] = (daily[day] || 0) + log.time;
+                    totalMinutes += log.time;
+
+                    if (!bySubject[log.subject]) bySubject[log.subject] = 0;
+                    bySubject[log.subject] += log.time;
+                }
+            });
+
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const labels = Array.from({ length: daysInMonth }, (_, i) => `${i + 1}日`);
+            const values = labels.map((_, i) => daily[i + 1] || 0);
+
+            renderBarChart(labels, values, "日別勉強時間（分）");
+            renderDonutChart(bySubject);
+
+            return totalMinutes;
+        }
+
+        // 📊 年別グラフ描画（戻り値：合計時間）
+        function drawYearlyCharts(year) {
+            const monthly = {};
+            const bySubject = {};
+            let totalMinutes = 0;
+
+            studyLogs.forEach(log => {
+                const date = new Date(log.timestamp);
+                if (date.getFullYear().toString() === year.toString()) {
+                    const month = date.getMonth() + 1;
+                    monthly[month] = (monthly[month] || 0) + log.time;
+                    totalMinutes += log.time;
+
+                    if (!bySubject[log.subject]) bySubject[log.subject] = 0;
+                    bySubject[log.subject] += log.time;
+                }
+            });
+
+            const labels = Array.from({ length: 12 }, (_, i) => `${i + 1}月`);
+            const values = labels.map((_, i) => monthly[i + 1] || 0);
+
+            renderBarChart(labels, values, "月別勉強時間（分）");
+            renderDonutChart(bySubject);
+
+            return totalMinutes;
+        }
+
+        // 📊 年度別グラフ描画（戻り値：合計時間）
+        function drawFiscalYearCharts(fiscalYear) {
+            fiscalYear = parseInt(fiscalYear);
+            const fiscalStart = new Date(fiscalYear, 3, 1);
+            const fiscalEnd = new Date(fiscalYear + 1, 2, 31, 23, 59, 59);
+            const monthly = {};
+            const bySubject = {};
+            let totalMinutes = 0;
+
+            studyLogs.forEach(log => {
+                const date = new Date(log.timestamp);
+                if (date >= fiscalStart && date <= fiscalEnd) {
+                    const monthKey = date.getMonth() + 1;
+                    const adjustedMonth = (monthKey >= 4) ? monthKey - 3 : monthKey + 9;
+                    monthly[adjustedMonth] = (monthly[adjustedMonth] || 0) + log.time;
+                    totalMinutes += log.time;
+
+                    if (!bySubject[log.subject]) bySubject[log.subject] = 0;
+                    bySubject[log.subject] += log.time;
+                }
+            });
+
+            const labels = ["4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月", "1月", "2月", "3月"];
+            const values = labels.map((_, i) => monthly[i + 1] || 0);
+
+            renderBarChart(labels, values, `${fiscalYear}年度の勉強時間（分）`);
+            renderDonutChart(bySubject);
+
+            return totalMinutes;
         }
 
     </script>
