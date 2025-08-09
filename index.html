@@ -243,6 +243,37 @@
         .dark-mode header button:hover {
             background-color: #777;
         }
+
+        .tools-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        a.tool-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            background: #e8eaf6;
+            color: #1a237e;
+            font-size: 14px;
+            border: 1px solid #c5cae9;
+            white-space: nowrap;
+        }
+
+        a.tool-link:hover {
+            background: #dce1fa;
+        }
+
+        .dark-mode a.tool-link {
+            background: #2a2a2a;
+            color: #fff;
+            border-color: #555;
+        }
     </style>
 
 </head>
@@ -270,11 +301,19 @@
     <div id="mainContent" style="display: none;">
 
         <!-- 「ダウンロード」プルダウン -->
-        <select id="downloadSelect" onchange="handleDownload(this.value)">
-            <option value="">📥 ダウンロード</option>
-            <option value="csv">CSV出力</option>
-            <option value="pdf">PDF出力</option>
-        </select>
+        <div class="tools-row">
+            <select id="downloadSelect" onchange="handleDownload(this.value)">
+                <option value="">📥 ダウンロード</option>
+                <option value="csv">CSV出力</option>
+                <option value="pdf">PDF出力</option>
+            </select>
+
+            <!-- 同一フォルダの XLSX をダウンロード -->
+            <a class="tool-link" href="./自己学習時間集計用VBA.xlsm" download="自己学習時間集計用VBA.xlsm"
+                aria-label="自己学習時間集計ツールをダウンロード">
+                📘 自己学習時間集計ツールはこちら
+            </a>
+        </div>
 
         <!-- 入力フォームエリア -->
         <div id="formArea" style="display:none;">
