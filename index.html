@@ -1121,7 +1121,7 @@
             html2pdf().from(element).save('study_tracker.pdf');
         }
 
-        // CSV出力関数
+        // CSV出力関数（カンマ・改行対応）
         function downloadCSV() {
             const rows = [
                 ["科目", "時間（分）", "日付", "メモ"],
@@ -1129,11 +1129,26 @@
                     log.subject,
                     log.time,
                     formatDateTimeJST(log.timestamp),
-                    (log.memo || "").replace(/\n/g, " ")
+                    log.memo || ""
                 ])
             ];
 
-            const csvContent = "\uFEFF" + rows.map(row => row.join(",")).join("\n"); // BOM付きでSJIS対応
+            // CSVフィールドを安全にエスケープ
+            const escapeCSV = (value) => {
+                if (value == null) return "";
+                // 文字列化
+                let str = String(value);
+                // ダブルクォートは "" に置換
+                str = str.replace(/"/g, '""');
+                // カンマ・改行・ダブルクォートが含まれる場合は全体をダブルクォートで囲む
+                if (/[",\n]/.test(str)) {
+                    str = `"${str}"`;
+                }
+                return str;
+            };
+
+            const csvContent = "\uFEFF" + rows.map(row => row.map(escapeCSV).join(",")).join("\n");
+
             const blob = new Blob([csvContent], { type: "text/csv;charset=shift_jis;" });
             const url = URL.createObjectURL(blob);
 
