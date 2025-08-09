@@ -1154,10 +1154,26 @@
 
             const link = document.createElement("a");
             link.href = url;
-            link.download = "study_logs.csv";
+            link.download = `study_logs_${nowJSTCompact()}.csv`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        }
+
+        // JSTの「YYYYMMDDhhmmss」を返す（例: 20250809155243）
+        function nowJSTCompact() {
+            const now = new Date();
+            // 日本はDSTなしなので +9時間でOK
+            const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+
+            const yyyy = jst.getUTCFullYear();
+            const mm = String(jst.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(jst.getUTCDate()).padStart(2, '0');
+            const hh = String(jst.getUTCHours()).padStart(2, '0');
+            const mi = String(jst.getUTCMinutes()).padStart(2, '0');
+            const ss = String(jst.getUTCSeconds()).padStart(2, '0');
+
+            return `${yyyy}${mm}${dd}${hh}${mi}${ss}`;
         }
 
         function handleDownload(type) {
